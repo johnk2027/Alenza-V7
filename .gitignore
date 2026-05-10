@@ -1,0 +1,8 @@
+# Local Database
+*.db
+
+# Streamlit Secrets
+.streamlit/secrets.toml
+
+# Python Cache
+__pycache__/
