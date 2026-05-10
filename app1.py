@@ -10,20 +10,18 @@ from pathlib import Path
 from typing import List, Tuple
 
 # ==========================================
-# 1. BOOTSTRAP & LIFECYCLE (Must be first)
+# 1. BOOTSTRAP & LIFECYCLE
 # ==========================================
 st.set_page_config(
-    page_title="Alenza Realtor OS v7",
-    page_icon="🛡️",
+    page_title="Alenza Realtor OS | Ultimate Edition",
+    page_icon="🏡",
     layout="wide"
 )
 
-# Paths and Persistence
 APP_DIR = Path(__file__).resolve().parent
 DB_PATH = APP_DIR / "alenza_broker_secure.db"
 
 def init_broker_db():
-    """Initializes the persistent SQLite database for broker oversight."""
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS secure_audit (
@@ -40,87 +38,76 @@ def init_broker_db():
         """)
 init_broker_db()
 
-# --- Authentication Layer ---
+# --- Authentication ---
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
 if not st.session_state.authenticated:
-    st.title("🛡️ Alenza v7 | Institutional Access")
+    st.title("🛡️ Alenza Institutional Login")
     pwd = st.text_input("Enter Brokerage Access Key", type="password")
-    if st.button("Authenticate"):
+    if st.button("Log In"):
         if pwd == "alenza2026": 
             st.session_state.authenticated = True
             st.rerun()
-        else:
-            st.error("Invalid credentials.")
+        else: st.error("Access Denied.")
     st.stop()
-
-# --- Global Settings ---
-DEMO_MODE = st.sidebar.toggle("Developer Demo Mode (Simulated AI)", value=True)
 
 # ==========================================
 # 2. PRIVACY & COMPLIANCE ENGINES
 # ==========================================
 def redact_preview(text: str) -> str:
-    """True Redactor: Scrubs PII, Names, Addresses, and Postal Codes."""
-    # Canadian Postal Code
     text = re.sub(r'\b[A-Za-z]\d[A-Za-z][ -]?\d[A-Za-z]\d\b', '[POSTAL]', text)
-    # Email
     text = re.sub(r'\b[\w\.-]+@[\w\.-]+\.\w+\b', '[EMAIL]', text)
-    # Phone
     text = re.sub(r'\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b', '[PHONE]', text)
-    # SIN / ID (9 digits)
-    text = re.sub(r'\b\d{3}[- ]?\d{3}[- ]?\d{3}\b', '[ID]', text)
-    # Large Currencies (Prices/Valuations)
     text = re.sub(r'\$?\b\d{3,}(,\d{3})*(\.\d{2})?\b', '[VAL]', text)
     return text[:100]
-
-class ComplianceAudit:
-    @staticmethod
-    def log_interaction(agent, module, inp, out, risks, sev):
-        i_hash = hashlib.sha256(inp.encode()).hexdigest()[:12]
-        o_hash = hashlib.sha256(out.encode()).hexdigest()[:12]
-        safe_preview = redact_preview(inp)
-        with sqlite3.connect(DB_PATH) as conn:
-            conn.execute('''INSERT INTO secure_audit 
-                (timestamp, agent_name, module, input_hash, output_hash, redacted_preview, risks_found, severity_level) 
-                VALUES (?,?,?,?,?,?,?,?)''',
-                (datetime.now().isoformat(), agent, module, i_hash, o_hash, safe_preview, str(risks), sev))
 
 class ComplianceEngine:
     SEVERITY_RANK = {"CLEAR": 0, "STYLE_CAUTION": 1, "REVIEW_REQUIRED": 2, "PROHIBITED": 3}
     RULES = {
-        "PROHIBITED": ["guaranteed profit", "no risk", "guaranteed return", "investment certainty"],
-        "REVIEW_REQUIRED": ["family friendly", "safe neighborhood", "safe neighbourhood", "walking distance", "perfect for kids"],
-        "STYLE_CAUTION": ["luxury", "best investment", "undervalued"]
+        "PROHIBITED": ["guaranteed profit", "no risk", "guaranteed return"],
+        "REVIEW_REQUIRED": ["family friendly", "safe neighbourhood", "walking distance"],
+        "STYLE_CAUTION": ["luxury", "best investment"]
     }
-
     @staticmethod
-    def scan(text: str) -> Tuple[List[str], str]:
-        found = []
-        max_severity = "CLEAR"
+    def scan(text: str):
+        found, max_sev = [], "CLEAR"
         for severity, terms in ComplianceEngine.RULES.items():
             for term in terms:
-                pattern = r'\b' + re.escape(term) + r'\b'
-                if re.search(pattern, text.lower()):
+                if re.search(r'\b' + re.escape(term) + r'\b', text.lower()):
                     found.append(f"[{severity}] Flag: '{term}'")
-                    if ComplianceEngine.SEVERITY_RANK[severity] > ComplianceEngine.SEVERITY_RANK[max_severity]:
-                        max_severity = severity
-        return found, max_severity
+                    if ComplianceEngine.SEVERITY_RANK[severity] > ComplianceEngine.SEVERITY_RANK[max_severity if 'max_severity' in locals() else "CLEAR"]:
+                        max_sev = severity
+        return found, max_sev
+
+def log_audit(agent, module, inp, out, risks, sev):
+    i_hash = hashlib.sha256(inp.encode()).hexdigest()[:12]
+    o_hash = hashlib.sha256(out.encode()).hexdigest()[:12]
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute('INSERT INTO secure_audit (timestamp, agent_name, module, input_hash, output_hash, redacted_preview, risks_found, severity_level) VALUES (?,?,?,?,?,?,?,?)',
+                    (datetime.now().isoformat(), agent, module, i_hash, o_hash, redact_preview(inp), str(risks), sev))
 
 # ==========================================
-# 3. VERIFIED 2026 FINANCIAL ENGINE
+# 3. THE CALCULATOR ENGINES (MORTGAGE/INVEST/TAX)
 # ==========================================
-class CanadianFinanceEngine:
-    VERIFIED_ON = "2026-05-09"
-    SOURCES = {
-        "Ontario LTT": "https://www.ontario.ca/document/land-transfer-tax",
-        "Toronto MLTT": "https://www.toronto.ca/services-payments/property-taxes-utilities/municipal-land-transfer-tax-mltt/",
-        "BC PTT": "https://www2.gov.bc.ca/gov/content/taxes/property-taxes/property-transfer-tax"
-    }
+class FinancialLogic:
+    @staticmethod
+    def calc_cmhc(price, down):
+        pct = down / price
+        if pct >= 0.20 or price >= 1000000: return 0.0
+        loan = price - down
+        if pct >= 0.15: return loan * 0.028
+        if pct >= 0.10: return loan * 0.031
+        return loan * 0.04
 
     @staticmethod
-    def calc_ontario_ltt(price: float) -> float:
+    def calc_payment(principal, rate, amort):
+        if principal <= 0 or rate <= 0: return 0
+        m_rate = ((1 + (rate / 200)) ** (2 / 12)) - 1
+        return (principal * m_rate) / (1 - (1 + m_rate) ** -(amort * 12))
+
+    @staticmethod
+    def calc_ontario_ltt(price):
         tax = 0.0
         if price > 55000: tax += (min(price, 250000) - 55000) * 0.01 + 55000 * 0.005
         else: tax += price * 0.005
@@ -130,103 +117,98 @@ class CanadianFinanceEngine:
         return tax
 
     @staticmethod
-    def calc_toronto_mltt(price: float) -> float:
-        tax = CanadianFinanceEngine.calc_ontario_ltt(min(price, 3000000))
-        if price > 3000000: tax += (min(price, 4000000) - 3000000) * 0.044
-        if price > 4000000: tax += (min(price, 5000000) - 4000000) * 0.0545
-        if price > 5000000: tax += (min(price, 10000000) - 5000000) * 0.065
-        if price > 10000000: tax += (min(price, 20000000) - 10000000) * 0.0755
-        if price > 20000000: tax += (price - 20000000) * 0.086
+    def calc_toronto_mltt(price):
+        tax = FinancialLogic.calc_ontario_ltt(min(price, 3000000))
+        if price > 3000000: # 2026 Luxury Tiers
+            tax += (min(price, 4000000) - 3000000) * 0.044
+            if price > 4000000: tax += (price - 4000000) * 0.0545 # Simplified upper
         return tax
 
-    @staticmethod
-    def calc_bc_ptt(price: float, is_fthb: bool) -> Tuple[float, float]:
-        tax = min(price, 200000) * 0.01
-        if price > 200000: tax += (min(price, 2000000) - 200000) * 0.02
-        if price > 2000000: tax += (min(price, 3000000) - 2000000) * 0.03
-        if price > 3000000: tax += (price - 3000000) * 0.05
-        rebate = 0.0
-        if is_fthb:
-            base_rebate = min(tax, 8000.0)
-            if price <= 835000: rebate = base_rebate
-            elif price < 860000: rebate = base_rebate * ((860000 - price) / 25000)
-        return tax, rebate
+# ==========================================
+# 4. UI WORKSTATION
+# ==========================================
+st.sidebar.title("🏛️ Alenza OS")
+agent = st.sidebar.text_input("Agent", "Agent_01")
+module = st.sidebar.selectbox("Toolkit", [
+    "📈 Market Intelligence",
+    "🏠 Mortgage & Financing",
+    "💰 Closing & LTT",
+    "📊 Investment Suite",
+    "🤝 Seller Net & ROI",
+    "🤖 Compliance AI"
+])
 
-# ==========================================
-# 4. MARKET DATA INTEGRATION
-# ==========================================
-@st.cache_data(ttl=3600)
-def fetch_live_market_data() -> Tuple[float, float, str, str]:
-    try:
-        res = requests.get("https://www.bankofcanada.ca/valet/observations/V39079,V39054/json?recent=1", timeout=5)
-        obs = res.json().get("observations", [])[-1]
-        return float(obs['V39079']['v']), float(obs['V39054']['v']), "LIVE", obs['d']
-    except:
-        return 2.25, 2.91, "FALLBACK", "2026-05-09"
+# --- MARKET INTEL ---
+if module == "📈 Market Intelligence":
+    st.title("Market Rate Signal")
+    on, y2 = 2.25, 2.95 # Fallback benchmarks
+    st.metric("BoC Overnight", f"{on}%")
+    st.metric("2-Yr Yield", f"{y2}%")
+    st.plotly_chart(go.Figure(data=go.Scatter(x=['O/N', '2Y'], y=[on, y2], line=dict(color='#CFB87C', width=4))))
 
-# ==========================================
-# 5. UI LAYOUT
-# ==========================================
-st.sidebar.title("🏛️ Alenza-v7")
-agent_name = st.sidebar.text_input("Agent Identity", value="Agent_01")
-module = st.sidebar.selectbox("Workstation", ["Closing Estimates", "Compliance AI", "Market Intelligence"])
-
-if module == "Closing Estimates":
-    st.title("Verified Closing Cost Breakdown")
+# --- MORTGAGE SUITE ---
+elif module == "🏠 Mortgage & Financing":
+    st.title("Mortgage Suite")
     c1, c2 = st.columns(2)
     with c1:
-        price = st.number_input("Purchase Price ($)", value=850000, step=10000)
-        prov = st.selectbox("Province", ["Ontario", "BC"])
-        is_to = st.checkbox("City of Toronto?") if prov == "Ontario" else False
-        fthb = st.checkbox("First-Time Home Buyer?")
-        
-        if prov == "Ontario":
-            ltt_p = CanadianFinanceEngine.calc_ontario_ltt(price)
-            ltt_m = CanadianFinanceEngine.calc_toronto_mltt(price) if is_to else 0
-            reb_p = min(ltt_p, 4000.0) if fthb else 0
-            reb_m = min(ltt_m, 4475.0) if (fthb and is_to) else 0
-            tax_total, reb_total = (ltt_p + ltt_m), (reb_p + reb_m)
-            breakdown = {"Ontario LTT": ltt_p, "Toronto MLTT": ltt_m, "Prov. Rebate": -reb_p, "Muni. Rebate": -reb_m}
-        else:
-            tax_total, reb_total = CanadianFinanceEngine.calc_bc_ptt(price, fthb)
-            breakdown = {"BC PTT": tax_total, "FTHB Exemption": -reb_total}
-
+        price = st.number_input("Purchase Price", 800000)
+        down = st.number_input("Down Payment", 80000)
+        rate = st.number_input("Rate (%)", 4.99)
+        amort = st.selectbox("Amortization", [25, 30])
     with c2:
-        st.metric("Total Transfer Tax", f"${tax_total:,.2f}")
-        st.metric("Estimated FTHB Rebate", f"-${reb_total:,.2f}")
-        st.subheader(f"Net Payable: ${(tax_total - reb_total):,.2f}")
-        st.table(pd.Series(breakdown).rename("Amount ($)"))
-        st.caption(f"Verified Logic: {CanadianFinanceEngine.VERIFIED_ON}")
+        cmhc = FinancialLogic.calc_cmhc(price, down)
+        total_loan = (price - down) + cmhc
+        pmt = FinancialLogic.calc_payment(total_loan, rate, amort)
+        st.metric("Monthly Payment", f"${pmt:,.2f}")
+        st.metric("CMHC Premium", f"${cmhc:,.2f}")
+        st.write(f"Total Loan: ${total_loan:,.2f}")
 
-elif module == "Compliance AI":
-    st.title("AI Content Risk Scanner")
-    agent_input = st.text_area("Enter Draft Details")
+# --- CLOSING & LTT ---
+elif module == "💰 Closing & LTT":
+    st.title("Closing Cost Breakdown")
+    price = st.number_input("Price", 1200000)
+    is_to = st.checkbox("Toronto Proper?")
+    fthb = st.checkbox("First Time Buyer?")
     
-    if st.button("Scan & Generate"):
-        in_risks, in_sev = ComplianceEngine.scan(agent_input)
-        ai_output = f"DRAFT: This {agent_input} is a guaranteed amazing home for families." if DEMO_MODE else "Drafting..."
-        out_risks, out_sev = ComplianceEngine.scan(ai_output)
-        
-        ranks = [ComplianceEngine.SEVERITY_RANK[s] for s in [in_sev, out_sev]]
-        max_rank = max(ranks)
-        final_sev = next(name for name, r in ComplianceEngine.SEVERITY_RANK.items() if r == max_rank)
-        total_risks = list(set(in_risks + out_risks))
+    ltt_p = FinancialLogic.calc_ontario_ltt(price)
+    ltt_m = FinancialLogic.calc_toronto_mltt(price) if is_to else 0
+    reb_p = min(ltt_p, 4000) if fthb else 0
+    reb_m = min(ltt_m, 4475) if fthb and is_to else 0
+    
+    st.metric("Net LTT Payable", f"${(ltt_p + ltt_m - reb_p - reb_m):,.2f}")
+    st.table({"Provincial LTT": ltt_p, "Toronto MLTT": ltt_m, "Rebates": -(reb_p + reb_m)})
 
-        ComplianceAudit.log_interaction(agent_name, "AI_COPILOT", agent_input, ai_output, total_risks, final_sev)
+# --- INVESTMENT SUITE ---
+elif module == "📊 Investment Suite":
+    st.title("Investment Analyzer")
+    price = st.number_input("Investment Price", 1000000)
+    rent = st.number_input("Monthly Rent", 5000)
+    opex = st.number_input("Monthly Expenses", 1200)
+    
+    noi = (rent - opex) * 12
+    cap = (noi / price) * 100
+    st.metric("Cap Rate", f"{cap:.2f}%")
+    st.metric("Annual NOI", f"${noi:,.2f}")
 
-        if max_rank >= 2: st.error(f"STATUS: {final_sev}")
-        elif max_rank == 1: st.warning(f"STATUS: {final_sev}")
-        else: st.success("STATUS: CLEAR")
-        
-        st.info(ai_output)
-        st.caption("[Compliance Screen Applied — Broker Review Still Required]")
+# --- SELLER NET ---
+elif module == "🤝 Seller Net & ROI":
+    st.title("Seller Net & Agent ROI")
+    sale = st.number_input("Sale Price", 1000000)
+    mortgage = st.number_input("Mortgage Balance", 500000)
+    comm = st.slider("Total Commission %", 1.0, 6.0, 5.0)
+    
+    gross_comm = sale * (comm/100)
+    net = sale - mortgage - gross_comm - 2000 # Misc fees
+    st.metric("Net to Seller", f"${net:,.2f}")
+    st.metric("Agent Gross (2.5% side)", f"${sale * 0.025:,.2f}")
 
-elif module == "Market Intelligence":
-    st.title("Market Rate Pressure")
-    on, y2, status, ldate = fetch_live_market_data()
-    st.caption(f"Status: **{status}** | Last BoC Update: {ldate}")
-    m1, m2 = st.columns(2)
-    m1.metric("BoC Overnight Rate", f"{on}%")
-    m2.metric("2-Yr Bond Yield", f"{y2}%")
-    fig = go.Figure(data=go.Scatter(x=['O/N', '2Y'], y=[on, y2], line=dict(color='#CFB87C', width=4)))
-    st.plotly_chart(fig, use_container_width=True)
+# --- COMPLIANCE AI ---
+elif module == "🤖 Compliance AI":
+    st.title("AI Content Scanner")
+    inp = st.text_area("Draft Content")
+    if st.button("Scan"):
+        risks, sev = ComplianceEngine.scan(inp)
+        log_audit(agent, "AI_COPILOT", inp, "Drafted content...", risks, sev)
+        if sev != "CLEAR": st.warning(f"Status: {sev}")
+        for r in risks: st.write(r)
+        st.success("Log recorded in Broker Audit.")
